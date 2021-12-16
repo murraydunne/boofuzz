@@ -38,7 +38,7 @@ from boofuzz.mutation import Mutation
 from boofuzz.mutation_context import MutationContext
 from boofuzz.protocol_session import ProtocolSession
 from boofuzz.web.app import app
-from .exception import BoofuzzFailure
+from .exception import BoofuzzError, BoofuzzFailure
 
 
 class Target(object):
@@ -235,28 +235,25 @@ class Target(object):
         self._fuzz_data_logger = fuzz_data_logger
 
 
-class Connection(pgraph.Edge):
+class Connection():
     def __init__(self, src, dst, callback=None):
         """
         Extends pgraph.edge with a callback option. This allows us to register a function to call between node
         transmissions to implement functionality such as challenge response systems. The callback method must follow
         this prototype::
-
             def callback(target, fuzz_data_logger, session, node, edge, *args, **kwargs)
-
         Where node is the node about to be sent, edge is the last edge along the current fuzz path to "node", session
         is a pointer to the session instance which is useful for snagging data such as sesson.last_recv which contains
         the data returned from the last socket transmission and sock is the live socket. A callback is also useful in
         situations where, for example, the size of the next packet is specified in the first packet.
-
         Args:
             src (int): Edge source ID
             dst (int): Edge destination ID
             callback (function): Optional. Callback function to pass received data to between node xmits
         """
 
-        super(Connection, self).__init__(src, dst)
-
+        self.src = src
+        self.dst = dst
         self.callback = callback
 
 
@@ -372,7 +369,7 @@ def open_test_run(db_filename, port=constants.DEFAULT_WEB_UI_PORT, address="loca
     w.server_init()
 
 
-class Session(pgraph.Graph):
+class Session:
     """
     Extends pgraph.graph and provides a container for architecting protocol dialogs.
 
@@ -562,13 +559,27 @@ class Session(pgraph.Graph):
 
         # create a root node. we do this because we need to start fuzzing from a single point and the user may want
         # to specify a number of initial requests.
+        self.places = []
+        self.place_lookup = {}
+
+        self.transitions = []
+        self.transition_lookup = {}
+        self.transition_reverse_lookup = {}
+        self.transition_sets = []
+        self.nodes = {}
+        
+        self.initial_marking = []
+
+        self.root_place = self.add_place("__ROOT_NODE__", 1)
+
+        # dummy node does nothing, just to satisfy prints
         self.root = pgraph.Node()
         self.root.label = "__ROOT_NODE__"
         self.root.name = self.root.label
+        self.nodes[self.root.name] = self.root
+
         self.last_recv = None
         self.last_send = None
-
-        self.add_node(self.root)
 
         if target is not None:
 
@@ -592,7 +603,7 @@ class Session(pgraph.Graph):
             " Please update your code."
         )
 
-    def add_node(self, node):
+    def add_place(self, name, initial_marking):
         """
         Add a pgraph node to the graph. We overload this routine to automatically generate and assign an ID whenever a
         node is added.
@@ -601,13 +612,26 @@ class Session(pgraph.Graph):
             node (pgraph.Node): Node to add to session graph
         """
 
-        node.number = len(self.nodes)
-        node.id = len(self.nodes)
+        place_id = len(self.places)
 
-        if node.id not in self.nodes:
-            self.nodes[node.id] = node
+        self.places.append(name)
+        self.place_lookup[name] = place_id
+        self.initial_marking.append(initial_marking)
 
-        return self
+        return place_id
+
+    def add_transition(self, node, name, src_place_ids, dst_place_ids, callback):
+
+        transition_id = len(self.transitions)
+
+        self.transitions.append(node)
+        self.nodes[name] = node
+        self.transition_lookup[name] = transition_id
+        self.transition_reverse_lookup[transition_id] = name
+
+        self.transition_sets.append([src_place_ids, dst_place_ids, callback])
+
+        return transition_id
 
     def add_target(self, target):
         """
@@ -653,30 +677,30 @@ class Session(pgraph.Graph):
         Returns:
             pgraph.Edge: The edge between the src and dst.
         """
-        # if only a source was provided, then make it the destination and set the source to the root node.
-        if dst is None:
-            dst = src
-            src = self.root
 
-        # if source or destination is a name, resolve the actual node.
         if isinstance(src, six.string_types):
-            src = self.find_node("name", src)
+            src = self.transition_lookup[src]
+        elif src in self.transitions:
+            src = self.transitions.index(src)
+        elif dst is None:
+            src = self.add_transition(src, src.name, [self.root_place], [], callback)
+            return
+        else:
+            raise BoofuzzError("Src node must be attached already if Dst is specified")
 
-        if isinstance(dst, six.string_types):
-            dst = self.find_node("name", dst)
+        if dst is not None:
+            if isinstance(dst, six.string_types):
+                dst = self.transition_lookup[src]
+            elif dst in self.transitions:
+                dst = self.transitions.index(src)
+            else:
+                dst = self.add_transition(dst, dst.name, [], [], callback)
 
-        # if source or destination is not in the graph, add it.
-        if src != self.root and self.find_node("name", src.name) is None:
-            self.add_node(src)
+        in_between_place = self.add_place(str(len(self.places)), 0)
+        self.transition_sets[src][1].append(in_between_place)
+        self.transition_sets[dst][0].append(in_between_place)
 
-        if self.find_node("name", dst.name) is None:
-            self.add_node(dst)
-
-        # create an edge between the two nodes and add it to the graph.
-        edge = Connection(src.id, dst.id, callback)
-        self.add_edge(edge)
-
-        return edge
+        return in_between_place
 
     @property
     def exec_speed(self):
@@ -768,11 +792,13 @@ class Session(pgraph.Graph):
         Returns:
             int: Total number of mutations in this session.
         """
-        if max_depth is None or max_depth > 1:
-            self.total_num_mutations = None
-            return self.total_num_mutations
+        return 100 # TODO: fixme
 
-        return self._num_mutations_recursive()
+        # if max_depth is None or max_depth > 1:
+        #     self.total_num_mutations = None
+        #     return self.total_num_mutations
+
+        # return self._num_mutations_recursive()
 
     def _num_mutations_recursive(self, this_node=None, path=None):
         """Helper for num_mutations.
@@ -785,27 +811,27 @@ class Session(pgraph.Graph):
             int: Total number of mutations in this session.
         """
 
-        if this_node is None:
-            this_node = self.root
-            self.total_num_mutations = 0
+        # if this_node is None:
+        #     this_node = self.root
+        #     self.total_num_mutations = 0
 
-        if path is None:
-            path = []
+        # if path is None:
+        #     path = []
 
-        for edge in self.edges_from(this_node.id):
-            next_node = self.nodes[edge.dst]
-            self.total_num_mutations += next_node.get_num_mutations()
+        # for edge in self.edges_from(this_node.id):
+        #     next_node = self.nodes[edge.dst]
+        #     self.total_num_mutations += next_node.get_num_mutations()
 
-            if edge.src != self.root.id:
-                path.append(edge)
+        #     if edge.src != self.root.id:
+        #         path.append(edge)
 
-            self._num_mutations_recursive(next_node, path)
+        #     self._num_mutations_recursive(next_node, path)
 
-        # finished with the last node on the path, pop it off the path stack.
-        if path:
-            path.pop()
+        # # finished with the last node on the path, pop it off the path stack.
+        # if path:
+        #     path.pop()
 
-        return self.total_num_mutations
+        # return self.total_num_mutations
 
     def _pause_if_pause_flag_is_set(self):
         """
@@ -1273,7 +1299,8 @@ class Session(pgraph.Graph):
         if name is None or name == "":
             self._main_fuzz_loop(self._generate_mutations_indefinitely(max_depth=max_depth))
         else:
-            self.fuzz_by_name(name=name)
+            raise BoofuzzError("Nah") #TODO: fixme
+            #self.fuzz_by_name(name=name)
 
     def fuzz_by_name(self, name):
         """Fuzz a particular test case or node by name.
@@ -1281,16 +1308,16 @@ class Session(pgraph.Graph):
         Args:
             name (str): Name of node.
         """
-        warnings.warn("Session.fuzz_by_name is deprecated in favor of Session.fuzz(name=name).")
-        path, mutations = helpers.parse_test_case_name(name)
-        if len(mutations) < 1:
-            self._fuzz_single_node_by_path(path)
-        else:
-            self.total_mutant_index = 0
-            self.total_num_mutations = 1
+        # warnings.warn("Session.fuzz_by_name is deprecated in favor of Session.fuzz(name=name).")
+        # path, mutations = helpers.parse_test_case_name(name)
+        # if len(mutations) < 1:
+        #     self._fuzz_single_node_by_path(path)
+        # else:
+        #     self.total_mutant_index = 0
+        #     self.total_num_mutations = 1
 
-            node_edges = self._path_names_to_edges(node_names=path)
-            self._main_fuzz_loop(self._generate_test_case_from_named_mutations(node_edges, mutations))
+        #     node_edges = self._path_names_to_edges(node_names=path)
+        #     self._main_fuzz_loop(self._generate_test_case_from_named_mutations(node_edges, mutations))
 
     def _fuzz_single_node_by_path(self, node_names):
         """Fuzz a particular node via the path in node_names.
@@ -1501,16 +1528,17 @@ class Session(pgraph.Graph):
         if not self.targets:
             raise exception.SullyRuntimeError("No targets specified in session")
 
-        if not self.edges_from(self.root.id):
+        if len(self.transitions) == 0:
+        #if not self.edges_from(self.root.id): #TODO: actual check case here
             raise exception.SullyRuntimeError("No requests specified in session")
 
         if path is not None:
             yield path
         else:
-            for x in self._iterate_protocol_message_paths_recursive(this_node=self.root, path=[]):
+            for x in self._iterate_protocol_message_paths_recursive(self.initial_marking, path=[]):
                 yield x
 
-    def _iterate_protocol_message_paths_recursive(self, this_node, path):
+    def _iterate_protocol_message_paths_recursive(self, marking, path):
         """Recursive helper for _iterate_protocol.
 
         Args:
@@ -1520,22 +1548,40 @@ class Session(pgraph.Graph):
         Yields:
             list of Connection: List of edges along the path to the current one being fuzzed.
         """
-        # step through every edge from the current node.
-        for edge in self.edges_from(this_node.id):
-            # keep track of the path as we fuzz through it, don't count the root node.
-            # we keep track of edges as opposed to nodes because if there is more then one path through a set of
-            # given nodes we don't want any ambiguity.
-            path.append(edge)
 
-            message_path = self._message_path_to_str(path)
-            logging.debug("fuzzing: {0}".format(message_path))
-            self.fuzz_node = self.nodes[path[-1].dst]
+        for i in range(len(self.transition_sets)):
+            transition = self.transition_sets[i]
 
-            yield path
+            can_fire = True
+            for src in transition[0]:
+                if marking[src] < 1:
+                    can_fire = False
+                marking[src] -= 1
 
-            # recursively fuzz the remainder of the nodes in the session graph.
-            for x in self._iterate_protocol_message_paths_recursive(self.fuzz_node, path):
-                yield x
+            if can_fire:
+                new_marking = marking.copy()
+                for dst in transition[1]:
+                    new_marking[dst] += 1
+                
+                #print(self.transitions[i])
+                last_node = self.root.name
+                if path:
+                    last_node = path[-1].dst
+                edge = Connection(last_node, self.transitions[i].name, transition[2])
+                path.append(edge)
+
+                message_path = self._message_path_to_str(path)
+                logging.debug("fuzzing: {0}".format(message_path))
+                self.fuzz_node = self.nodes[path[-1].dst]
+
+                yield path
+
+                for x in self._iterate_protocol_message_paths_recursive(new_marking, path):
+                    yield x
+
+            else:
+                for src in transition[0]:
+                    marking[src] += 1
 
         # finished with the last node on the path, pop it off the path stack.
         if path:
@@ -1749,6 +1795,7 @@ class Session(pgraph.Graph):
                 self._fuzz_data_logger.open_test_step("Transmit Prep Node '{0}'".format(node.name))
                 self.transmit_normal(target, node, e, callback_data=callback_data, mutation_context=mutation_context)
 
+            #print(mutation_context.message_path[0].src, mutation_context.message_path[0].dst)
             prev_node = self.nodes[mutation_context.message_path[-1].src]
             node = self.nodes[mutation_context.message_path[-1].dst]
             protocol_session = ProtocolSession(
@@ -1849,6 +1896,7 @@ class Session(pgraph.Graph):
         return "{0}:[{1}]".format(message_path, ", ".join(mutation_names))
 
     def _message_path_to_str(self, message_path):
+        
         return "->".join([self.nodes[e.dst].name for e in message_path])
 
     def test_case_data(self, index):

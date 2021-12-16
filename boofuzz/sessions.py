@@ -1106,9 +1106,9 @@ class Session(pgraph.Graph):
             mutation_context (MutationContext): active mutation context
         """
         if callback_data:
-            data = callback_data
+            data = callback_data.bytes
         else:
-            data = node.render(mutation_context=mutation_context)
+            data = node.render(mutation_context=mutation_context).bytes
 
         try:  # send
             self.targets[0].send(data)
@@ -1171,9 +1171,9 @@ class Session(pgraph.Graph):
             mutation_context (MutationContext): Current mutation context.
         """
         if callback_data:
-            data = callback_data
+            data = callback_data.bytes
         else:
-            data = self.fuzz_node.render(mutation_context)
+            data = self.fuzz_node.render(mutation_context).bytes
 
         try:  # send
             self.targets[0].send(data)

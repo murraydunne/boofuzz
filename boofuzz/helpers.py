@@ -11,6 +11,7 @@ import warnings
 import zlib
 from builtins import int
 from functools import reduce
+from bitstring import BitArray
 
 import six
 from colorama import Back, Fore, Style
@@ -453,6 +454,15 @@ def get_boofuzz_version(boofuzz_class):
 def str_to_bytes(value, encoding="utf-8", errors="replace"):
     return six.ensure_binary(value, encoding=encoding, errors=errors)
 
+def str_to_bitstring(value, encoding="utf-8", errors="replace"):
+    if isinstance(value, BitArray):
+        return value
+    elif isinstance(value, bytes):
+        return BitArray(bytes)
+    elif isinstance(value, str):
+        return BitArray(str_to_bytes(value, encoding=encoding, errors=errors))
+    else:
+        raise ValueError("str_to_bitstring expects string or bytes")
 
 def parse_target(target_name):
     try:

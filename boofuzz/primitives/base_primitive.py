@@ -1,3 +1,4 @@
+from .. import helpers
 from ..fuzzable import Fuzzable
 
 
@@ -17,7 +18,7 @@ class BasePrimitive(Fuzzable):
     def encode(self, value, mutation_context):
         if value is None:
             value = b""
-        return value
+        return helpers.str_to_bitarray(value)
 
     def num_mutations(self, default_value):
         return len(self._fuzz_library)

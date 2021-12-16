@@ -3,6 +3,7 @@ import operator
 
 from funcy import compose
 
+from .. import helpers
 from ..fuzzable import Fuzzable
 
 
@@ -207,4 +208,4 @@ class Bytes(Fuzzable):
     def encode(self, value, mutation_context):
         if value is None:
             value = b""
-        return value
+        return helpers.str_to_bitstring(value)

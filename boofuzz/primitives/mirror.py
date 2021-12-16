@@ -49,7 +49,7 @@ class Mirror(BasePrimitive):
         :return: Rendered value.
         """
         rendered = self._render_primitive(self._primitive_name)
-        return helpers.str_to_bytes(rendered)
+        return helpers.str_to_bitstring(rendered)
 
     def mutations(self, default_value):
         return iter(())  # empty generator

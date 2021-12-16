@@ -1,5 +1,6 @@
 import struct
 from builtins import range
+from bitstring import BitArray
 
 import six
 from past.builtins import map
@@ -7,6 +8,7 @@ from past.builtins import map
 from .. import helpers
 from ..constants import LITTLE_ENDIAN
 from ..fuzzable import Fuzzable
+from ..exception import BoofuzzError
 
 
 def binary_string_to_int(binary):
@@ -134,10 +136,13 @@ class BitField(Fuzzable):
                 yield case
 
     def encode(self, value, mutation_context):
-        temp = self._render_int(
-            value, output_format=self.format, bit_width=self.width, endian=self.endian, signed=self.signed
-        )
-        return helpers.str_to_bytes(temp)
+        if isinstance(value, BitArray):
+            return value
+        else:
+            temp = self._render_int(
+                value, output_format=self.format, bit_width=self.width, endian=self.endian, signed=self.signed
+            )
+            return temp
 
     def mutations(self, default_value):
         for val in self._iterate_fuzz_lib():
@@ -159,27 +164,17 @@ class BitField(Fuzzable):
             str: value converted to a byte string
         """
         if output_format == "binary":
-            bit_stream = ""
-            rendered = b""
-
-            # pad the bit stream to the next byte boundary.
-            if bit_width % 8 == 0:
-                bit_stream += int_to_binary_string(value, bit_width)
-            else:
-                bit_stream = "0" * (8 - (bit_width % 8))
-                bit_stream += int_to_binary_string(value, bit_width)
-
-            # convert the bit stream from a string of bits into raw bytes.
-            for i in range(len(bit_stream) // 8):
-                chunk_min = 8 * i
-                chunk_max = chunk_min + 8
-                chunk = bit_stream[chunk_min:chunk_max]
-                rendered += struct.pack("B", binary_string_to_int(chunk))
+            rendered = BitArray('0b' + int_to_binary_string(value, bit_width))
 
             # if necessary, convert the endianness of the raw bytes.
             if endian == LITTLE_ENDIAN:
-                # reverse the bytes
-                rendered = rendered[::-1]
+                if len(rendered) % 8 == 0:
+                    new_rendered = BitArray()
+                    for i in range(len(rendered), 0, -8):
+                        new_rendered += rendered[i-8:i]
+                    rendered = new_rendered
+                else:
+                    raise BoofuzzError('Cannot swap endianness of non-multiple-of-8 bits')
 
             _rendered = rendered
         else:
@@ -194,9 +189,9 @@ class BitField(Fuzzable):
                 val = max_num - val - 1
 
                 # toss in the negative sign.
-                _rendered = "%d" % ~val
+                _rendered = helpers.str_to_bitstring("%d" % ~val)
 
             # unsigned integer or positive signed integer.
             else:
-                _rendered = "%d" % value
+                _rendered = helpers.str_to_bitstring("%d" % value)
         return _rendered

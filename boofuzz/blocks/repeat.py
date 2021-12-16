@@ -95,7 +95,7 @@ class Repeat(Fuzzable):
             )
         else:
             _rendered = ""
-        return helpers.str_to_bytes(_rendered)
+        return helpers.str_to_bitstring(_rendered)
 
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self._name)

@@ -8,6 +8,7 @@ import six
 from future.standard_library import install_aliases
 from six.moves import range
 
+from .. import helpers
 from ..fuzzable import Fuzzable
 
 install_aliases()
@@ -297,7 +298,7 @@ class String(Fuzzable):
         # pad undersized library items.
         if self.size is not None and len(value) < self.size:
             value += self.padding * (self.size - len(value))
-        return value
+        return helpers.str_to_bitstring(value)
 
     def num_mutations(self, default_value):
         """

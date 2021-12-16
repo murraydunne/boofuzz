@@ -108,7 +108,7 @@ class Size(Fuzzable):
             if self._recursion_flag:
                 return self._get_dummy_value()
             else:
-                return helpers.str_to_bytes(
+                return helpers.str_to_bitstring(
                     self._length_to_bytes(self._calculated_length(mutation_context=mutation_context))
                 )
         else:

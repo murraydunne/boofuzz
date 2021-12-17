@@ -72,6 +72,7 @@ setup(
         "pydot",
         "six",
         "tornado",
+        "bitstring",
     ],
     extras_require=extra_requirements,
     python_requires=">=3.6",

@@ -47,11 +47,12 @@ class ITargetConnection(with_metaclass(abc.ABCMeta, object)):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def send(self, data):
+    def send(self, data, delay):
         """
         Send data to the target.
 
         :param data: Data to send.
+        :param delay: How long to wait before sending this packet.
 
         :return: Number of bytes actually sent.
         :rtype: int

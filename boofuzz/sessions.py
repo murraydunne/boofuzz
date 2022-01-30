@@ -194,7 +194,7 @@ class Target(object):
 
         return data
 
-    def send(self, data):
+    def send(self, data, delay):
         """
         Send data to the target. Only valid after calling open!
 
@@ -215,10 +215,10 @@ class Target(object):
         if self.repeater is not None:
             self.repeater.start()
             while self.repeater.repeat():
-                num_sent = self._target_connection.send(data=data)
+                num_sent = self._target_connection.send(data=data, delay=delay)
             self.repeater.reset()
         else:
-            num_sent = self._target_connection.send(data=data)
+            num_sent = self._target_connection.send(data=data, delay=delay)
 
         if self._fuzz_data_logger is not None:
             self._fuzz_data_logger.log_send(data[:num_sent])
@@ -1145,13 +1145,10 @@ class Session:
             callback_data (bytes): Data from previous callback.
             mutation_context (MutationContext): active mutation context
         """
-        if callback_data:
-            data = callback_data.bytes
-        else:
-            data = node.render(mutation_context=mutation_context).bytes
+        data = node.render(mutation_context=mutation_context).bytes
 
         try:  # send
-            self.targets[0].send(data)
+            self.targets[0].send(data, callback_data)
             self.last_send = data
         except exception.BoofuzzTargetConnectionReset:
             # TODO: Switch _ignore_connection_reset for _ignore_transmission_error, or provide retry mechanism
@@ -1210,13 +1207,10 @@ class Session:
             callback_data (bytes): Data from previous callback.
             mutation_context (MutationContext): Current mutation context.
         """
-        if callback_data:
-            data = callback_data.bytes
-        else:
-            data = self.fuzz_node.render(mutation_context).bytes
+        data = self.fuzz_node.render(mutation_context).bytes
 
         try:  # send
-            self.targets[0].send(data)
+            self.targets[0].send(data, callback_data)
             self.last_send = data
         except exception.BoofuzzTargetConnectionReset:
             if self._ignore_connection_issues_when_sending_fuzz_data:

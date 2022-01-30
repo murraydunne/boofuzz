@@ -1298,6 +1298,8 @@ class Session:
 
         if name is None or name == "":
             self._main_fuzz_loop(self._generate_mutations_indefinitely(max_depth=max_depth))
+            #for x in self._generate_mutations_indefinitely(max_depth=max_depth):
+            #    print(x)
         else:
             raise BoofuzzError("Nah") #TODO: fixme
             #self.fuzz_by_name(name=name)
@@ -1480,9 +1482,49 @@ class Session:
 
     def _generate_n_mutations(self, depth, path):
         """Yield MutationContext with n mutations per message over all messages."""
+        #for path in self._iterate_protocol_message_paths(path=path):
+        #    for m in self._generate_n_mutations_for_path(path, depth=depth):
+        #        yield m
+        
+        path_mutations = []
         for path in self._iterate_protocol_message_paths(path=path):
+            path_mut = []
             for m in self._generate_n_mutations_for_path(path, depth=depth):
-                yield m
+                path_mut.append(m)
+            path_mutations.append(path_mut)
+
+        i = 0
+        mutation_found = True
+        while mutation_found:
+            mutation_found = False
+            for path_mut in path_mutations:
+                if len(path_mut) > i:
+                    yield path_mut[i]
+                    mutation_found = True
+            i += 1
+
+        #path_mutation_counts = []
+        #i = 0
+        #for path in self._iterate_protocol_message_paths(path=path):
+        #    path_mutation_counts.append(0)
+        #    for m in self._generate_n_mutations_for_path(path, depth=depth):
+        #        path_mutation_counts[i] += 1
+        #        yield m
+        #        break
+        #    i += 1
+
+        #mutation_found = True
+        #while mutation_found:
+        #    mutation_found = False
+        #    for path in self._iterate_protocol_message_paths(path=path):
+        #        j = 0
+        #        for m in self._generate_n_mutations_for_path(path, depth=depth):
+        #            if j >= path_mutation_counts[i]:
+        #                path_mutation_counts[i] += 1
+        #                mutation_found = True
+        #                yield m
+        #                break
+        #            j += 1
 
     def _generate_n_mutations_for_path(self, path, depth):
         """Yield MutationContext with n mutations for a specific message.
@@ -1497,7 +1539,7 @@ class Session:
         for mutations in self._generate_n_mutations_for_path_recursive(path, depth=depth):
             if not self._mutations_contain_duplicate(mutations):
                 self.total_mutant_index += 1
-                yield MutationContext(message_path=path, mutations={n.qualified_name: n for n in mutations})
+                yield MutationContext(message_path=path.copy(), mutations={n.qualified_name: n for n in mutations})
 
     def _generate_n_mutations_for_path_recursive(self, path, depth, skip_elements=None):
         if skip_elements is None:
@@ -1552,14 +1594,14 @@ class Session:
         for i in range(len(self.transition_sets)):
             transition = self.transition_sets[i]
 
+            new_marking = marking.copy()
             can_fire = True
             for src in transition[0]:
-                if marking[src] < 1:
+                if new_marking[src] < 1:
                     can_fire = False
-                marking[src] -= 1
+                new_marking[src] -= 1
 
             if can_fire:
-                new_marking = marking.copy()
                 for dst in transition[1]:
                     new_marking[dst] += 1
                 
@@ -1571,17 +1613,14 @@ class Session:
                 path.append(edge)
 
                 message_path = self._message_path_to_str(path)
-                logging.debug("fuzzing: {0}".format(message_path))
+                #logging.debug("fuzzing: {0}".format(message_path))
+                #print("fuzzing: {0}".format(message_path))
                 self.fuzz_node = self.nodes[path[-1].dst]
 
                 yield path
 
                 for x in self._iterate_protocol_message_paths_recursive(new_marking, path):
                     yield x
-
-            else:
-                for src in transition[0]:
-                    marking[src] += 1
 
         # finished with the last node on the path, pop it off the path stack.
         if path:

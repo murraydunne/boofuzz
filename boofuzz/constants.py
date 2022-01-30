@@ -4,7 +4,7 @@ LITTLE_ENDIAN = "<"
 DEFAULT_WEB_UI_PORT = 26000
 DEFAULT_PROCMON_PORT = 26002
 
-RESULTS_DIR = "boofuzz-results"
+RESULTS_DIR = "/home/mdunne/boofuzz-results"
 
 ERR_CONN_FAILED_TERMINAL = (
     "Cannot connect to target; target presumed down. Stopping test run. Note: This likely "

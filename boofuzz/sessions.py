@@ -1314,6 +1314,7 @@ class Session:
             self._main_fuzz_loop(self._generate_mutations_indefinitely(max_depth=max_depth))
             #for x in self._generate_mutations_indefinitely(max_depth=max_depth):
                 #print(x)
+                #pass
         else:
             raise BoofuzzError("Nah") #TODO: fixme
             #self.fuzz_by_name(name=name)
@@ -1503,8 +1504,13 @@ class Session:
         path_mutations = []
         for path in self._iterate_protocol_message_paths(path=path):
             path_mut = []
+            i = 0
             for m in self._generate_n_mutations_for_path(path, depth=depth):
                 path_mut.append(m)
+                i += 1
+                if i > self.iteration_depth_limit:
+                    break
+
             path_mutations.append(path_mut)
 
         i = 0
@@ -1630,6 +1636,7 @@ class Session:
             transition = self.transition_sets[i]
 
             new_marking = marking.copy()
+            new_path = path.copy()
 
             for src in transition[0]:
                 new_marking[src] -= 1
@@ -1637,24 +1644,21 @@ class Session:
                 new_marking[dst] += 1
             
             last_node = self.root.name
-            if path:
-                last_node = path[-1].dst
+            if new_path:
+                last_node = new_path[-1].dst
             edge = Connection(last_node, self.transitions[i].name, transition[2])
-            path.append(edge)
+            new_path.append(edge)
 
-            message_path = self._message_path_to_str(path)
-            #logging.debug("fuzzing: {0}".format(message_path))
-            print("fuzzing: {0}".format(message_path))
-            self.fuzz_node = self.nodes[path[-1].dst]
+            message_path = self._message_path_to_str(new_path)
+            logging.debug("fuzzing: {0}".format(message_path))
+            #print("fuzzing: {0}".format(message_path))
+            self.fuzz_node = self.nodes[new_path[-1].dst]
 
-            yield path
+            yield new_path
 
-            for x in self._iterate_protocol_message_paths_recursive(new_marking, path):
-                yield x
-
-        # finished with the last node on the path, pop it off the path stack.
-        if path:
-            path.pop()
+            if len(new_path) < self.max_sequence_length:
+                for x in self._iterate_protocol_message_paths_recursive(new_marking, new_path):
+                    yield x
 
     def _mutations_contain_duplicate(self, mutations):
         # print(mutations)

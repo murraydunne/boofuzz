@@ -567,6 +567,8 @@ class Session:
         self.transition_reverse_lookup = {}
         self.transition_sets = []
         self.nodes = {}
+
+        self.expressiveness = []
         
         self.initial_marking = []
 
@@ -701,6 +703,18 @@ class Session:
         self.transition_sets[dst][0].append(in_between_place)
 
         return in_between_place
+
+    def recalculate_expressiveness(self):
+        """
+        Recalculate the expressiveness for each place
+        """
+        self.expressiveness = [0] * len(self.places)
+
+        for transition in self.transition_sets:
+            for src in transition[0]:
+                self.expressiveness[src] += 1
+            for dst in transition[1]:
+                self.expressiveness[dst] -= 1
 
     @property
     def exec_speed(self):
@@ -1299,7 +1313,7 @@ class Session:
         if name is None or name == "":
             self._main_fuzz_loop(self._generate_mutations_indefinitely(max_depth=max_depth))
             #for x in self._generate_mutations_indefinitely(max_depth=max_depth):
-            #    print(x)
+                #print(x)
         else:
             raise BoofuzzError("Nah") #TODO: fixme
             #self.fuzz_by_name(name=name)
@@ -1577,8 +1591,13 @@ class Session:
         if path is not None:
             yield path
         else:
-            for x in self._iterate_protocol_message_paths_recursive(self.initial_marking, path=[]):
-                yield x
+            self.recalculate_expressiveness()
+            for place_id in sorted(list(range(len(self.places))), key= lambda x: self.expressiveness[x], reverse=True):
+                marking = [0] * len(self.places)
+                marking[place_id] += 1
+
+                for x in self._iterate_protocol_message_paths_recursive(marking, path=[]):
+                    yield x
 
     def _iterate_protocol_message_paths_recursive(self, marking, path):
         """Recursive helper for _iterate_protocol.
@@ -1591,6 +1610,7 @@ class Session:
             list of Connection: List of edges along the path to the current one being fuzzed.
         """
 
+        active_transitions = []
         for i in range(len(self.transition_sets)):
             transition = self.transition_sets[i]
 
@@ -1602,25 +1622,35 @@ class Session:
                 new_marking[src] -= 1
 
             if can_fire:
-                for dst in transition[1]:
-                    new_marking[dst] += 1
-                
-                #print(self.transitions[i])
-                last_node = self.root.name
-                if path:
-                    last_node = path[-1].dst
-                edge = Connection(last_node, self.transitions[i].name, transition[2])
-                path.append(edge)
+                active_transitions.append(i)
 
-                message_path = self._message_path_to_str(path)
-                #logging.debug("fuzzing: {0}".format(message_path))
-                #print("fuzzing: {0}".format(message_path))
-                self.fuzz_node = self.nodes[path[-1].dst]
+        active_transitions.sort(key= lambda t: sum([self.expressiveness[x] for x in self.transition_sets[i][1]]), reverse=True)
 
-                yield path
+        for i in active_transitions:
+            transition = self.transition_sets[i]
 
-                for x in self._iterate_protocol_message_paths_recursive(new_marking, path):
-                    yield x
+            new_marking = marking.copy()
+
+            for src in transition[0]:
+                new_marking[src] -= 1
+            for dst in transition[1]:
+                new_marking[dst] += 1
+            
+            last_node = self.root.name
+            if path:
+                last_node = path[-1].dst
+            edge = Connection(last_node, self.transitions[i].name, transition[2])
+            path.append(edge)
+
+            message_path = self._message_path_to_str(path)
+            #logging.debug("fuzzing: {0}".format(message_path))
+            print("fuzzing: {0}".format(message_path))
+            self.fuzz_node = self.nodes[path[-1].dst]
+
+            yield path
+
+            for x in self._iterate_protocol_message_paths_recursive(new_marking, path):
+                yield x
 
         # finished with the last node on the path, pop it off the path stack.
         if path:

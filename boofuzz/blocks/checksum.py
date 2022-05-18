@@ -22,81 +22,70 @@ def _may_recurse(f):
 
 
 class Checksum(primitives.BasePrimitive):
-    """Checksum bound to the block with the specified name.
+    """
+    Checksum bound to the block with the specified name.
 
     The algorithm may be chosen by name with the algorithm parameter, or a custom function may be specified with
     the algorithm parameter.
 
     The length field is only necessary for custom algorithms.
-    When using your own custom checksum function, the return value should be the calculated checksum of the data.
-
-    Function signature:  <function_name>(data_bytes). Returns a number represented as a bytes type.
 
     Recursive checksums are supported; the checksum field itself will render as all zeros for the sake of checksum
     or length calculations.
 
-    :type  name: str, optional
-    :param name: Name, for referencing later. Names should always be provided, but if not, a default name will be given,
-        defaults to None
-    :type  block_name: str
-    :param block_name: Name of target block for checksum calculations.
-    :type  request: boofuzz.Request, optional
-    :param request: Request this block belongs to
-    :type  algorithm: str, function def name, optional
-    :param algorithm: Checksum algorithm to use from this list, default is crc32 (crc32, crc32c, adler32, md5, sha1,
-        ipv4, udp). See above for custom checksum function example.
-
-    :type  length: int, optional
-    :param length: Length of checksum, auto-calculated by default. Must be specified manually when using custom
-        algorithm, defaults to 0
-    :type  endian: chr, optional
-    :param endian: Endianness of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >), defaults to LITTLE_ENDIAN
-    :type  ipv4_src_block_name: str, optional
-    :param ipv4_src_block_name: Required for 'udp' algorithm. Name of block yielding IPv4 source address,
-        defaults to None
-    :type  ipv4_dst_block_name: str, optional
-    :param ipv4_dst_block_name: Required for 'udp' algorithm. Name of block yielding IPv4 destination address,
-        defaults to None
-    :type  fuzzable: bool, optional
-    :param fuzzable: Enable/disable fuzzing of this block, defaults to true
+    Args:
+        block_name (str): Name of target block for checksum calculations.
+        request (s_request): Request this block belongs to.
+        algorithm (str, function, optional): Checksum algorithm to use. (crc32, crc32c, adler32, md5, sha1, ipv4, udp)
+            Pass a function to use a custom algorithm. This function has to take and return byte-type data.
+        length (int, optional): Length of checksum, auto-calculated by default.
+            Must be specified manually when using custom algorithm.
+        endian (str, optional): Endianness of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >).
+            Defaults to LITTLE_ENDIAN.
+        fuzzable (bool, optional): Enable/disable fuzzing. Defaults to true.
+        name (str): Name of this checksum field
+        ipv4_src_block_name (str): Required for 'udp' algorithm. Name of block yielding IPv4 source address.
+        ipv4_dst_block_name (str): Required for 'udp' algorithm. Name of block yielding IPv4 destination address.
     """
 
     checksum_lengths = {"crc32": 4, "crc32c": 4, "adler32": 4, "md5": 16, "sha1": 20, "ipv4": 2, "udp": 2}
 
     def __init__(
         self,
-        name=None,
-        block_name=None,
-        request=None,
+        block_name,
+        request,
         algorithm="crc32",
         length=0,
         endian=LITTLE_ENDIAN,
+        fuzzable=True,
+        name=None,
         ipv4_src_block_name=None,
         ipv4_dst_block_name=None,
-        *args,
-        **kwargs
     ):
-        super(Checksum, self).__init__(name=name, *args, **kwargs)
+        super(Checksum, self).__init__()
 
         self._block_name = block_name
         self._request = request
         self._algorithm = algorithm
         self._length = length
         self._endian = endian
+        self._name = name
         self._ipv4_src_block_name = ipv4_src_block_name
         self._ipv4_dst_block_name = ipv4_dst_block_name
+
+        self._fuzzable = fuzzable
 
         if not self._length and self._algorithm in self.checksum_lengths:
             self._length = self.checksum_lengths[self._algorithm]
 
         # Edge cases and a couple arbitrary strings (all 1s, all Es)
         self._fuzz_library = [
-            b"\x00" * self._length,
-            b"\x11" * self._length,
-            b"\xEE" * self._length,
-            b"\xFF" * self._length,
-            b"\xFF" * (self._length - 1) + b"\xFE",
-            b"\x00" * (self._length - 1) + b"\x01",
+            "\x00" * self._length,
+            "\x11" * self._length,
+            "\xEE" * self._length,
+            "\xFF" * self._length,
+            "\xFF" * (self._length - 1) + "\xFE",
+            "\x00" * (self._length - 1) + "\x01",
         ]
 
         if self._algorithm == "udp":
@@ -110,30 +99,35 @@ class Checksum(primitives.BasePrimitive):
         # Set the recursion flag before calling a method that may cause a recursive loop.
         self._recursion_flag = False
 
-    def encode(self, value, mutation_context):
-        if value is None:
-            if self._recursion_flag or self._request is None:
-                self._rendered = self._get_dummy_value()
-            else:
-                self._rendered = self._checksum(
-                    data=self._render_block(self._block_name, mutation_context=mutation_context),
-                    ipv4_src=self._render_block(self._ipv4_src_block_name, mutation_context=mutation_context),
-                    ipv4_dst=self._render_block(self._ipv4_dst_block_name, mutation_context=mutation_context),
-                )
-            return helpers.str_to_bytes(self._rendered)
+    @property
+    def name(self):
+        return self._name
+
+    def render(self):
+        """
+        Calculate the checksum of the specified block using the specified algorithm.
+        """
+        if self._should_render_fuzz_value():
+            self._rendered = self._value
+        elif self._recursion_flag:
+            self._rendered = self._get_dummy_value()
         else:
-            return value
+            self._rendered = self._checksum(
+                data=self._render_block(self._block_name),
+                ipv4_src=self._render_block(self._ipv4_src_block_name),
+                ipv4_dst=self._render_block(self._ipv4_dst_block_name),
+            )
+        return helpers.str_to_bytes(self._rendered)
+
+    def _should_render_fuzz_value(self):
+        return self._fuzzable and (self._mutant_index != 0) and not self._fuzz_complete
 
     def _get_dummy_value(self):
         return self._length * "\x00"
 
     @_may_recurse
-    def _render_block(self, block_name, mutation_context):
-        return (
-            self._request.resolve_name(self.context_path, block_name).render(mutation_context=mutation_context)
-            if block_name is not None and self._request is not None
-            else None
-        )
+    def _render_block(self, block_name):
+        return self._request.names[block_name].render() if block_name is not None else None
 
     def _checksum(self, data, ipv4_src, ipv4_dst):
         """
@@ -200,8 +194,31 @@ class Checksum(primitives.BasePrimitive):
         else:
             return check
 
+    @property
+    def original_value(self):
+        if self._recursion_flag:
+            return self._get_dummy_value()
+        else:
+            return self._checksum(
+                data=self._original_value_of_block(self._block_name),
+                ipv4_src=self._original_value_of_block(self._ipv4_src_block_name),
+                ipv4_dst=self._original_value_of_block(self._ipv4_dst_block_name),
+            )
+
+    @_may_recurse
+    def _original_value_of_block(self, block_name):
+        return self._request.names[block_name].original_value if block_name is not None else None
+
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self._name)
 
     def __len__(self):
         return self._length
+
+    def __bool__(self):
+        """
+        Make sure instances evaluate to True even if __len__ is zero.
+
+        :return: True
+        """
+        return True

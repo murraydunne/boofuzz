@@ -104,7 +104,6 @@ class DebuggerThreadSimple(threading.Thread):
         self.log("starting target process")
 
         for command in self.start_commands:
-            self.log("exec start command: {0}".format(command))
             try:
                 if self.capture_output:
                     self._process = subprocess.Popen(command, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
@@ -212,10 +211,7 @@ class DebuggerThreadSimple(threading.Thread):
         try:
             os.kill(self.pid, signal.SIGKILL)
         except OSError as e:
-            print(
-                'Error while killing process. PID: {0} errno: {1} "{2}"'.format(self.pid, e.errno, os.strerror(e.errno))
-            )
-            raise e
+            print(e.errno)  # TODO interpret some basic errors
 
     def pre_send(self):
         pass

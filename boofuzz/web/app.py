@@ -69,15 +69,12 @@ def index_update():
             "is_paused": app.session.is_paused,
             "current_index": app.session.total_mutant_index,
             "num_mutations": app.session.total_num_mutations,
-            "current_index_element": app.session.mutant_index if app.session is not None else None,
-            "num_mutations_element": app.session.fuzz_node.get_num_mutations()
+            "current_index_element": app.session.fuzz_node.mutant_index if app.session.fuzz_node is not None else None,
+            "num_mutations_element": app.session.fuzz_node.num_mutations()
             if app.session.fuzz_node is not None
             else None,
             "current_element": app.session.fuzz_node.name if app.session.fuzz_node is not None else None,
-            "current_test_case_name": app.session.current_test_case_name,
             "crashes": _crash_summary_info(),
-            "runtime": app.session.runtime,
-            "exec_speed": app.session.exec_speed,
         }
     }
 
@@ -96,11 +93,11 @@ def index():
 
     # render sweet progress bars.
     if app.session.fuzz_node is not None:
-        mutant_index = float(app.session.mutant_index)
-        num_mutations = float(app.session.fuzz_node.get_num_mutations())
+        mutant_index = float(app.session.fuzz_node.mutant_index)
+        num_mutations = float(app.session.fuzz_node.num_mutations())
 
         try:
-            progress_current = min(mutant_index / num_mutations, 1)
+            progress_current = mutant_index / num_mutations
         except ZeroDivisionError:
             progress_current = 0
         num_bars = int(progress_current * 50)
@@ -118,7 +115,7 @@ def index():
         progress_total = 0
     else:
         try:
-            progress_total = min(total_mutant_index / total_num_mutations, 1)
+            progress_total = total_mutant_index / total_num_mutations
         except ZeroDivisionError:
             progress_total = 0
 
@@ -136,7 +133,7 @@ def index():
         "progress_total": progress_total,
         "progress_total_bar": progress_total_bar,
         "total_mutant_index": commify(int(total_mutant_index)),
-        "total_num_mutations": commify(int(total_num_mutations)) if total_num_mutations is not None else None,
+        "total_num_mutations": commify(int(total_num_mutations)) if total_num_mutations is not None else "N/A",
     }
 
     return render_template("index.html", state=state, crashes=crashes)

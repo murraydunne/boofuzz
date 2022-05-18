@@ -9,19 +9,18 @@ import struct
 import time
 import warnings
 import zlib
+from bitstring import BitArray
 from builtins import int
 from functools import reduce
-from bitstring import BitArray
+from boofuzz import exception
 
 import six
 from colorama import Back, Fore, Style
 from past.builtins import map, range
 
 from boofuzz.connections import ip_constants, udp_socket_connection
-from boofuzz.exception import BoofuzzError
 
 # Curses color pairs
-
 COLOR_PAIR_WHITE = 1
 COLOR_PAIR_CYAN = 2
 COLOR_PAIR_RED = 3
@@ -416,21 +415,12 @@ def hex_to_hexstr(input_bytes):
     return hex_str(input_bytes) + " " + repr(input_bytes)
 
 
-def mkdir_safe(directory_name, file_included=False):
-    """Creates directory_name and subdirectories. If file_included is true, removes final element of the path"""
-    if file_included:
-        fullpath = os.path.abspath(directory_name)
-        directory_name = os.path.dirname(fullpath)
+def mkdir_safe(directory_name):
     try:
         os.makedirs(directory_name)
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-
-
-def path_exists(path):
-    """To avoid polluting files with import os"""
-    return os.path.exists(path)
 
 
 def get_boofuzz_version(boofuzz_class):
@@ -451,47 +441,21 @@ def get_boofuzz_version(boofuzz_class):
     return "v-.-.-"
 
 
-def str_to_bytes(value, encoding="utf-8", errors="replace"):
-    return six.ensure_binary(value, encoding=encoding, errors=errors)
+def str_to_bytes(value):
+    result = value
+    # if python2, str is alread bytes compatible
+    if six.PY3:
+        if isinstance(value, six.text_type):
+            temp = [bytes([ord(i)]) for i in value]
+            result = b"".join(temp)
+    return result
 
-def str_to_bitstring(value, encoding="utf-8", errors="replace"):
+def str_to_bitstring(value):
     if isinstance(value, BitArray):
         return value
     elif isinstance(value, bytes):
-        return BitArray(bytes)
+        return BitArray(value)
     elif isinstance(value, str):
-        return BitArray(str_to_bytes(value, encoding=encoding, errors=errors))
+        return BitArray(str_to_bytes(value))
     else:
-        raise ValueError("str_to_bitstring expects string or bytes")
-
-def parse_target(target_name):
-    try:
-        host, ip = target_name.split(":")
-        return host, int(ip)
-    except ValueError:
-        raise ValueError("Target format is HOST:PORT")
-
-
-def parse_test_case_name(test_case):
-    """Parse a test case name into a message path and a list of mutation names.
-
-    Example:
-        Input: "message1:[message1.first_byte:2, message1.second_byte:1, message1.third_byte:2]"
-        Output: ["message1"], ["message1.first_byte:2", "message1.second_byte:1", "message1.third_byte:2"]
-
-    Returns:
-        A message path (list of message names) and a list of mutation names.
-    """
-    components = test_case.split(":", 1)
-    message_path = components[0]
-    path = re.split("->", message_path)
-    if len(components) < 2:
-        return path, []
-    else:
-        mutations = components[1]
-        match = re.match(r"\[(.*)\]", mutations)
-        if match is None:
-            raise BoofuzzError("could not parse test case name: {0}".format(test_case))
-        mutations = match.group(1)
-        mutations = re.split(r",\s*", mutations)
-        return path, mutations
+        raise exception.SullyRuntimeError('Trying to convert bad type ' + type(value) + ' to BitArray')

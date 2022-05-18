@@ -14,7 +14,6 @@
 #
 
 import pydot
-from builtins import object
 
 
 class Edge(object):
@@ -74,27 +73,27 @@ class Edge(object):
         if not src or not dst:
             return ""
 
-        edge = (
-            "  edge [\n"
-            "    source {srcNumber}\n"
-            "    target {dstNumber}\n"
-            "    generalization 0\n"
-            "    graphics [\n"
-            '      type "line"\n'
-            '      arrow "{gml_arrow}"\n'
-            "      stripple {gml_stipple}\n"
-            "      linWidth {gml_line_width}\n"
-            '      fill "#{color:06x}"\n'
-            "    ]\n"
-            "  ]\n".format(
-                color=self.color,
-                srcNumber=src.number,
-                dstNumber=dst.number,
-                gml_arrow=self.gml_arrow,
-                gml_stipple=self.gml_stipple,
-                gml_line_width=self.gml_line_width,
-            )
-        )
+        edge = """
+          edge [
+            source %(srcNumber)d
+            target %(dstNumber)d
+            generalization 0
+            graphics [
+              type "line"
+              arrow "%(gml_arrow)s"
+              stripple %(gml_stipple)d
+              linWidth %(gml_line_width)f
+              fill "#%(color)06x"
+            ]
+          ]
+        """ % {
+            "color": self.color,
+            "srcNumber": src.number,
+            "dstNumber": dst.number,
+            "gml_arrow": self.gml_arrow,
+            "gml_stipple": self.gml_stipple,
+            "gml_line_width": self.gml_line_width,
+        }
 
         return edge
 
@@ -113,7 +112,7 @@ class Edge(object):
         if self.label:
             dot_edge.label = self.label
 
-        dot_edge.color = "#{:06x}".format(self.color)
+        dot_edge.color = "#%06x" % self.color
 
         return dot_edge
 
@@ -138,16 +137,22 @@ class Edge(object):
         # translate newlines for uDraw.
         self.label = self.label.replace("\n", "\\n")
 
-        udraw = (
-            '        l("{src:08x}->{dst:08x}",\n'
-            '          e("",\n'
-            "            [\n"
-            '              a("EDGECOLOR","#{color:06x}"),\n'
-            '              a("OBJECT","{label}")\n'
-            "            ],\n"
-            '          r("{dst:08x}")\n'
-            "        )\n".format(src=self.src, dst=self.dst, color=self.color, label=self.label)
+        udraw = """
+        l("%(src)08x->%(dst)08x",
+          e("",
+            [
+              a("EDGECOLOR","#%(color)06x"),
+              a("OBJECT","%(label)s")
+            ],
+            r("%(dst)08x")
+          )
         )
+        """ % {
+            "src": self.src,
+            "dst": self.dst,
+            "color": self.color,
+            "label": self.label,
+        }
 
         return udraw
 
@@ -162,14 +167,19 @@ class Edge(object):
         # translate newlines for uDraw.
         self.label = self.label.replace("\n", "\\n")
 
-        udraw = (
-            '\n  new_edge("{src:08x}->{dst:08x}","",\n'
-            "    [\n"
-            '      a("EDGECOLOR","#{color:06x}"),\n'
-            '      a("OBJECT","{label}")\n'
-            "    ]\n"
-            '    "{src:08x}", "{dst:08x}"\n'
-            "  )\n".format(src=self.src, dst=self.dst, color=self.color, label=self.label)
+        udraw = """
+        new_edge("%(src)08x->%(dst)08x","",
+          [
+            a("EDGECOLOR","#%(color)06x"),
+            a("OBJECT","%(label)s")
+          ]
+          "%(src)08x","%(dst)08x"
         )
+        """ % {
+            "src": self.src,
+            "dst": self.dst,
+            "color": self.color,
+            "label": self.label,
+        }
 
         return udraw

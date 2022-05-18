@@ -5,7 +5,7 @@ from six import with_metaclass
 
 
 class Repeater(with_metaclass(ABCMeta, object)):
-    """Base Repeater class.
+    """ Base Repeater class.
 
     :param sleep_time: Time to sleep between repetitions.
     :type sleep_time: float
@@ -16,12 +16,12 @@ class Repeater(with_metaclass(ABCMeta, object)):
 
     @abstractmethod
     def start(self):
-        """Starts the repeater."""
+        """ Starts the repeater. """
         pass
 
     @abstractmethod
     def repeat(self):
-        """Decides whether the operation should repeat.
+        """ Decides whether the operation should repeat.
 
         :return: True if the operation should repeat, False otherwise.
         :rtype: Bool
@@ -30,17 +30,17 @@ class Repeater(with_metaclass(ABCMeta, object)):
 
     @abstractmethod
     def reset(self):
-        """Resets the internal state of the repeater."""
+        """ Resets the internal state of the repeater. """
         pass
 
     @abstractmethod
     def log_message(self):
-        """Formats a message to output in a log file. It should contain info about your repetition."""
+        """ Formats a message to output in a log file. It should contain info about your repetition."""
         pass
 
 
 class TimeRepeater(Repeater):
-    """Time-based repeater class. Starts a timer, and repeats until `duration` seconds have passed.
+    """ Time-based repeater class. Starts a timer, and repeats until `duration` seconds have passed.
 
     :raises ValueError: Raised if a time <= 0 is specified.
 
@@ -60,7 +60,7 @@ class TimeRepeater(Repeater):
         self._starttime = None
 
     def start(self):
-        """Starts the timer."""
+        """ Starts the timer. """
         self._starttime = time.time()
 
     def repeat(self):
@@ -68,7 +68,7 @@ class TimeRepeater(Repeater):
         return time.time() - self._starttime < self.duration
 
     def reset(self):
-        """Resets the timer."""
+        """ Resets the timer. """
         self._starttime = None
 
     def log_message(self):
@@ -76,7 +76,7 @@ class TimeRepeater(Repeater):
 
 
 class CountRepeater(Repeater):
-    """Count-Based repeater class. Repeats a fixed number of times.
+    """ Count-Based repeater class. Repeats a fixed number of times.
 
     :raises ValueError: Raised if a count < 1 is specified.
 

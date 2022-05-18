@@ -66,7 +66,3 @@ class MustImplementException(Exception):
 
 class BoofuzzSSLError(BoofuzzError):
     pass
-
-
-class BoofuzzNameResolutionError(BoofuzzError):
-    pass

@@ -30,12 +30,12 @@ class String(blocks.Block):
             raise exception.SullyRuntimeError("MISSING LEGO.ber_string DEFAULT VALUE")
 
         str_block = blocks.Block(name + "_STR", request)
-        str_block.push(primitives.String())
+        str_block.push(primitives.String(self.value))
 
         self.push(blocks.Size(name + "_STR", request, endian=BIG_ENDIAN, fuzzable=True))
         self.push(str_block)
 
-    def render(self, mutation_context=None):
+    def render(self):
         # let the parent do the initial render.
         blocks.Block.render(self)
 
@@ -59,7 +59,7 @@ class Integer(blocks.Block):
         if not options:
             options = {}
 
-        super(Integer, self).__init__(name, request)
+        super(Integer).__init__(name, request)
 
         self.value = value
         self.options = options

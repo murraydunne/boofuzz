@@ -7,15 +7,13 @@ import six
 from past.builtins import map
 
 from . import blocks, exception, legos, primitives
-from .blocks import Aligned, Block, Checksum, Repeat, Request, REQUESTS, Size
-from .cli import main_helper
+from .blocks import Block, Checksum, Repeat, Request, REQUESTS, Size
 from .connections import (
     BaseSocketConnection,
     FileConnection,
     ip_constants,
     ISerialLike,
     ITargetConnection,
-    NETCONFConnection,
     RawL2SocketConnection,
     RawL3SocketConnection,
     SerialConnection,
@@ -24,21 +22,17 @@ from .connections import (
     SSLSocketConnection,
     TCPSocketConnection,
     UDPSocketConnection,
-    UnixSocketConnection,
 )
 from .constants import BIG_ENDIAN, DEFAULT_PROCMON_PORT, LITTLE_ENDIAN
 from .event_hook import EventHook
-from .exception import BoofuzzFailure, MustImplementException, SizerNotUtilizedError, SullyRuntimeError
+from .exception import MustImplementException, SizerNotUtilizedError, SullyRuntimeError, BoofuzzFailure
 from .fuzz_logger import FuzzLogger
 from .fuzz_logger_csv import FuzzLoggerCsv
 from .fuzz_logger_curses import FuzzLoggerCurses
 from .fuzz_logger_text import FuzzLoggerText
-from .fuzzable import Fuzzable
-from .fuzzable_block import FuzzableBlock
 from .ifuzz_logger import IFuzzLogger
 from .ifuzz_logger_backend import IFuzzLoggerBackend
 from .monitors import BaseMonitor, CallbackMonitor, NetworkMonitor, pedrpc, ProcessMonitor
-from .utils.process_monitor_local import ProcessMonitorLocal
 from .primitives import (
     BasePrimitive,
     BitField,
@@ -46,21 +40,17 @@ from .primitives import (
     Bytes,
     Delim,
     DWord,
-    Float,
     FromFile,
     Group,
     Mirror,
     QWord,
     RandomData,
-    Simple,
     Static,
     String,
     Word,
 )
 from .repeater import CountRepeater, Repeater, TimeRepeater
 from .sessions import open_test_run, Session, Target
-from .protocol_session import ProtocolSession
-from .protocol_session_reference import ProtocolSessionReference
 
 # workaround to make Tornado work in Python 3.8
 # https://github.com/tornadoweb/tornado/issues/2608
@@ -71,7 +61,6 @@ if sys.platform == "win32" and sys.version_info >= (3, 8):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # pytype: disable=module-attr
 
 __all__ = [
-    "Aligned",
     "BaseMonitor",
     "BasePrimitive",
     "BaseSocketConnection",
@@ -91,10 +80,7 @@ __all__ = [
     "EventHook",
     "exception",
     "FileConnection",
-    "Float",
     "FromFile",
-    "Fuzzable",
-    "FuzzableBlock",
     "FuzzLogger",
     "FuzzLoggerCsv",
     "FuzzLoggerCurses",
@@ -105,10 +91,8 @@ __all__ = [
     "ip_constants",
     "ISerialLike",
     "ITargetConnection",
-    "NETCONFConnection",
     "legos",
     "LITTLE_ENDIAN",
-    "main_helper",
     "Mirror",
     "MustImplementException",
     "NetworkMonitor",
@@ -116,7 +100,6 @@ __all__ = [
     "pedrpc",
     "primitives",
     "ProcessMonitor",
-    "ProcessMonitorLocal",
     "QWord",
     "RandomData",
     "RawL2SocketConnection",
@@ -125,7 +108,6 @@ __all__ = [
     "Repeater",
     "Request",
     "REQUESTS",
-    "s_aligned",
     "s_bigword",
     "s_binary",
     "s_bit",
@@ -143,7 +125,6 @@ __all__ = [
     "s_double",
     "s_dunno",
     "s_dword",
-    "s_float",
     "s_from_file",
     "s_get",
     "s_group",
@@ -154,17 +135,18 @@ __all__ = [
     "s_lego",
     "s_long",
     "s_mirror",
+    "s_mutate",
     "s_num_mutations",
     "s_qword",
     "s_random",
     "s_raw",
+    "s_render",
     "s_repeat",
     "s_repeater",
     "s_short",
     "s_size",
     "s_sizer",
     "s_static",
-    "s_simple",
     "s_string",
     "s_switch",
     "s_unknown",
@@ -177,21 +159,17 @@ __all__ = [
     "SizerNotUtilizedError",
     "SocketConnection",
     "SSLSocketConnection",
-    "Simple",
     "Static",
     "String",
     "SullyRuntimeError",
     "Target",
     "TCPSocketConnection",
-    "ProtocolSession",
-    "ProtocolSessionReference",
     "TimeRepeater",
     "UDPSocketConnection",
-    "UnixSocketConnection",
     "Word",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.2.1"
 
 
 # REQUEST MANAGEMENT
@@ -239,6 +217,17 @@ def s_initialize(name):
     blocks.CURRENT = blocks.REQUESTS[name]
 
 
+def s_mutate():
+    """
+    Mutate the current request and return False if mutations are exhausted, in which case the request has been reverted
+    back to its normal form.
+
+    :rtype:  bool
+    :return: True on mutation success, False if mutations exhausted.
+    """
+    return blocks.CURRENT.mutate()
+
+
 def s_num_mutations():
     """
     Determine the number of repetitions we will be making.
@@ -247,7 +236,18 @@ def s_num_mutations():
     :return: Number of mutated forms this primitive can take.
     """
 
-    return blocks.CURRENT.get_num_mutations()
+    return blocks.CURRENT.num_mutations()
+
+
+def s_render():
+    """
+    Render out and return the entire contents of the current request.
+
+    :rtype:  Raw
+    :return: Rendered contents
+    """
+
+    return blocks.CURRENT.render()
 
 
 def s_switch(name):
@@ -267,7 +267,7 @@ def s_switch(name):
 # ## BLOCK MANAGEMENT
 
 
-def s_block(name=None, group=None, encoder=None, dep=None, dep_value=None, dep_values=None, dep_compare="=="):
+def s_block(name, group=None, encoder=None, dep=None, dep_value=None, dep_values=(), dep_compare="=="):
     """
     Open a new block under the current request. The returned instance supports the "with" interface so it will
     be automatically closed for you::
@@ -277,23 +277,23 @@ def s_block(name=None, group=None, encoder=None, dep=None, dep_value=None, dep_v
             if s_block_start("body"):
                 ...
 
-    :type  name:        str, optional
+    :type  name:        str
     :param name:        Name of block being opened
-    :type  group:       str, optional
+    :type  group:       str
     :param group:       (Optional, def=None) Name of group to associate this block with
-    :type  encoder:     Function Pointer, optional
+    :type  encoder:     Function Pointer
     :param encoder:     (Optional, def=None) Optional pointer to a function to pass rendered data to prior to return
-    :type  dep:         str, optional
+    :type  dep:         str
     :param dep:         (Optional, def=None) Optional primitive whose specific value this block is dependant on
-    :type  dep_value:   Mixed, optional
+    :type  dep_value:   Mixed
     :param dep_value:   (Optional, def=None) Value that field "dep" must contain for block to be rendered
-    :type  dep_values:  List of Mixed Types, optional
-    :param dep_values:  (Optional, def=None) Values that field "dep" may contain for block to be rendered
-    :type  dep_compare: str, optional
+    :type  dep_values:  List of Mixed Types
+    :param dep_values:  (Optional, def=[]) Values that field "dep" may contain for block to be rendered
+    :type  dep_compare: str
     :param dep_compare: (Optional, def="==") Comparison method to use on dependency (==, !=, >, >=, <, <=)
     """
 
-    class ScopedBlock(object):
+    class ScopedBlock(Block):
         def __init__(self, block):
             self.block = block
 
@@ -310,55 +310,12 @@ def s_block(name=None, group=None, encoder=None, dep=None, dep_value=None, dep_v
             # Automagically close the block when exiting the "with" statement
             s_block_end()
 
-    block = s_block_start(
-        name,
-        request=blocks.CURRENT,
-        group=group,
-        encoder=encoder,
-        dep=dep,
-        dep_value=dep_value,
-        dep_values=dep_values,
-        dep_compare=dep_compare,
-    )
+    block = s_block_start(name, group, encoder, dep, dep_value, dep_values, dep_compare)
 
     return ScopedBlock(block)
 
 
-def s_aligned(modulus=1, pattern=b"\x00", name=None):
-    """FuzzableBlock that aligns its contents to a certain number of bytes
-
-    :type  modulus:     int, optional
-    :param modulus:     Pad length of child content to this many bytes, defaults to 1
-    :type  pattern:     bytes, optional
-    :param pattern:     Pad using these byte(s)
-    :type  name:        str, optional
-    :param name:        Name, for referencing later. Names should always be provided, but if not, a default name will
-                        be given, defaults to None
-    """
-
-    class ScopedAligned(object):
-        def __init__(self, aligned):
-            self.aligned = aligned
-
-        def __enter__(self):
-            """
-            Setup before entering the "with" statement body
-            """
-            return self.aligned
-
-        def __exit__(self, type, value, traceback):
-            """
-            Cleanup after executing the "with" statement body
-            """
-            blocks.CURRENT.pop()
-
-    aligned = Aligned(name=name, modulus=modulus, pattern=pattern, fuzzable=True)
-    blocks.CURRENT.push(aligned)
-
-    return ScopedAligned(aligned)
-
-
-def s_block_start(name=None, *args, **kwargs):
+def s_block_start(name, *args, **kwargs):
     """
     Open a new block under the current request. This routine always returns an instance so you can make your fuzzer
     pretty with indenting::
@@ -372,7 +329,7 @@ def s_block_start(name=None, *args, **kwargs):
     :note Prefer using s_block to this function directly
     :see s_block
     """
-    block = Block(name=name, *args, **kwargs)
+    block = Block(name, blocks.CURRENT, *args, **kwargs)
     blocks.CURRENT.push(block)
 
     return block
@@ -390,7 +347,7 @@ def s_block_end(name=None):
 
 
 def s_checksum(
-    block_name=None,
+    block_name,
     algorithm="crc32",
     length=0,
     endian=LITTLE_ENDIAN,
@@ -400,38 +357,34 @@ def s_checksum(
     ipv4_dst_block_name=None,
 ):
     """
-    Checksum bound to the block with the specified name.
+    Create a checksum block bound to the block with the specified name. You *can not* create a checksum for any
+    currently open blocks.
 
-    The algorithm may be chosen by name with the algorithm parameter, or a custom function may be specified with
-    the algorithm parameter.
+    :type  block_name: str
+    :param block_name: Name of block for checksum calculations
 
-    The length field is only necessary for custom algorithms.
+    :type  algorithm:  str, function
+    :param algorithm:  (Optional, def=crc32) Checksum algorithm to use. (crc32, crc32c, adler32, md5, sha1, ipv4, udp)
+                       Pass a function to use a custom algorithm. This function has to take and return byte-type data.
 
-    Recursive checksums are supported; the checksum field itself will render as all zeros for the sake of checksum
-    or length calculations.
+    :type  length:     int
+    :param length:     (Optional, def=0) Length of checksum, auto-calculated by default. Must be specified manually when
+                       using a custom algorithm.
 
-    :type  block_name: str, optional
-    :param block_name: Name of target block for checksum calculations.
-    :type  algorithm: str, function, optional
-    :param algorithm: Checksum algorithm to use. (crc32, crc32c, adler32, md5, sha1, ipv4, udp)
-        Pass a function to use a custom algorithm. This function has to take and return byte-type data,
-        defaults to crc32
-    :type  length: int, optional
-    :param length: Length of checksum, auto-calculated by default. Must be specified manually when using custom
-        algorithm, defaults to 0
-    :type  endian: chr, optional
-    :param endian: Endianness of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >), defaults to LITTLE_ENDIAN
-    :type  fuzzable:   bool, optional
-    :param fuzzable:   Enable/disable fuzzing.
-    :type  name: str, optional
-    :param name: Name, for referencing later. Names should always be provided, but if not, a default name will be given,
-        defaults to None
-    :type  ipv4_src_block_name: str, optional
-    :param ipv4_src_block_name: Required for 'udp' algorithm. Name of block yielding IPv4 source address,
-        defaults to None
-    :type  ipv4_dst_block_name: str, optional
-    :param ipv4_dst_block_name: Required for 'udp' algorithm. Name of block yielding IPv4 destination address,
-        defaults to None
+    :type  endian:     Character
+    :param endian:     (Optional, def=LITTLE_ENDIAN) Endianness of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
+
+    :type  fuzzable:   bool
+    :param fuzzable:   (Optional, def=True) Enable/disable fuzzing.
+
+    :type  name:       str
+    :param name:       Name of this checksum field
+
+    :type ipv4_src_block_name: str
+    :param ipv4_src_block_name: Required for 'udp' algorithm. Name of block yielding IPv4 source address.
+
+    :type ipv4_dst_block_name: str
+    :param ipv4_dst_block_name: Required for 'udp' algorithm. Name of block yielding IPv4 destination address.
     """
 
     # you can't add a checksum for a block currently in the stack.
@@ -439,20 +392,20 @@ def s_checksum(
         raise exception.SullyRuntimeError("CAN N0T ADD A CHECKSUM FOR A BLOCK CURRENTLY IN THE STACK")
 
     checksum = Checksum(
-        name=name,
-        block_name=block_name,
-        request=blocks.CURRENT,
-        algorithm=algorithm,
-        length=length,
-        endian=endian,
-        fuzzable=fuzzable,
+        block_name,
+        blocks.CURRENT,
+        algorithm,
+        length,
+        endian,
+        fuzzable,
+        name,
         ipv4_src_block_name=ipv4_src_block_name,
         ipv4_dst_block_name=ipv4_dst_block_name,
     )
     blocks.CURRENT.push(checksum)
 
 
-def s_repeat(block_name=None, min_reps=0, max_reps=25, step=1, variable=None, fuzzable=True, name=None):
+def s_repeat(block_name, min_reps=0, max_reps=None, step=1, variable=None, fuzzable=True, name=None):
     """
     Repeat the rendered contents of the specified block cycling from min_reps to max_reps counting by step. By
     default renders to nothing. This block modifier is useful for fuzzing overflows in table entries. This block
@@ -461,11 +414,11 @@ def s_repeat(block_name=None, min_reps=0, max_reps=25, step=1, variable=None, fu
     :see: Aliases: s_repeater()
 
     :type  block_name: str
-    :param block_name: (Optional, def=None) Name of block to repeat
+    :param block_name: Name of block to repeat
     :type  min_reps:   int
     :param min_reps:   (Optional, def=0) Minimum number of block repetitions
     :type  max_reps:   int
-    :param max_reps:   (Optional, def=25) Maximum number of block repetitions
+    :param max_reps:   (Optional, def=None) Maximum number of block repetitions
     :type  step:       int
     :param step:       (Optional, def=1) Step count between min and max reps
     :type  variable:   Sulley Integer Primitive
@@ -476,22 +429,12 @@ def s_repeat(block_name=None, min_reps=0, max_reps=25, step=1, variable=None, fu
     :param name:       (Optional, def=None) Specifying a name gives you direct access to a primitive
     """
 
-    blocks.CURRENT.push(
-        Repeat(
-            name=name,
-            block_name=block_name,
-            request=blocks.CURRENT,
-            min_reps=min_reps,
-            max_reps=max_reps,
-            step=step,
-            variable=variable,
-            fuzzable=fuzzable,
-        )
-    )
+    repeat = Repeat(block_name, blocks.CURRENT, min_reps, max_reps, step, variable, fuzzable, name)
+    blocks.CURRENT.push(repeat)
 
 
 def s_size(
-    block_name=None,
+    block_name,
     offset=0,
     length=4,
     endian=LITTLE_ENDIAN,
@@ -508,43 +451,36 @@ def s_size(
 
     :see: Aliases: s_sizer()
 
-    :type  block_name:    str, optional
-    :param block_name:    Name of block to apply sizer to.
-    :type  offset:        int, optional
-    :param offset:        Offset for calculated size value, defaults to 0
-    :type  length:        int, optional
-    :param length:        Length of sizer, defaults to 4
-    :type  endian:        chr, optional
-    :param endian:        Endianness of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >), defaults to LITTLE_ENDIAN
-    :type  output_format: str, optional
-    :param output_format: Output format, "binary" or "ascii", defaults to binary
-    :type  inclusive:     bool, optional
-    :param inclusive:     Should the sizer count its own length? Defaults to False
-    :type  signed:        bool, optional
-    :param signed:        Make size signed vs. unsigned (applicable only with format="ascii"), defaults to False
-    :type  math:          def, optional
-    :param math:          Apply the mathematical op defined in this function to the size, defaults to None
+    :type  block_name:    str
+    :param block_name:    Name of block to apply sizer to
+    :type  offset:        int
+    :param offset:        (Optional, def=0) Offset to calculated size of block
+    :type  length:        int
+    :param length:        (Optional, def=4) Length of sizer
+    :type  endian:        Character
+    :param endian:        (Optional, def=LITTLE_ENDIAN) Endianess of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
+    :type  output_format: str
+    :param output_format: (Optional, def=binary) Output format, "binary" or "ascii"
+    :type  inclusive:     bool
+    :param inclusive:     (Optional, def=False) Should the sizer count its own length?
+    :type  signed:        bool
+    :param signed:        (Optional, def=False) Make size signed vs. unsigned (applicable only with format="ascii")
+    :type  math:          Function
+    :param math:          (Optional, def=None) Apply the mathematical operations defined in this function to the size
     :type  fuzzable:      bool
     :param fuzzable:      (Optional, def=True) Enable/disable fuzzing of this sizer
     :type  name:          str
     :param name:          Name of this sizer field
     """
 
-    blocks.CURRENT.push(
-        Size(
-            name=name,
-            block_name=block_name,
-            request=blocks.CURRENT,
-            offset=offset,
-            length=length,
-            endian=endian,
-            output_format=output_format,
-            inclusive=inclusive,
-            signed=signed,
-            math=math,
-            fuzzable=fuzzable,
-        )
+    # you can't add a size for a block currently in the stack.
+    if block_name in blocks.CURRENT.block_stack:
+        raise exception.SullyRuntimeError("CAN NOT ADD A SIZE FOR A BLOCK CURRENTLY IN THE STACK")
+
+    size = Size(
+        block_name, blocks.CURRENT, offset, length, endian, output_format, inclusive, signed, math, fuzzable, name
     )
+    blocks.CURRENT.push(size)
 
 
 def s_update(name, value):
@@ -593,39 +529,42 @@ def s_binary(value, name=None):
 
         value += six.int2byte(int(pair, 16))
 
-    blocks.CURRENT.push(Static(name=name, default_value=parsed, fuzzable=False))
+    static = primitives.Static(value, name)
+    blocks.CURRENT.push(static)
 
 
-def s_delim(value=" ", fuzzable=True, name=None):
+def s_delim(value, fuzzable=True, name=None):
     """
     Push a delimiter onto the current block stack.
 
     :type  value:    Character
-    :param value:    (Optional, def=" ")Original value
+    :param value:    Original value
     :type  fuzzable: bool
     :param fuzzable: (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  name:     str
     :param name:     (Optional, def=None) Specifying a name gives you direct access to a primitive
     """
 
-    blocks.CURRENT.push(Delim(name=name, default_value=value, fuzzable=fuzzable))
+    delim = primitives.Delim(value, fuzzable, name)
+    blocks.CURRENT.push(delim)
 
 
-def s_group(name=None, values=None, default_value=None):
+def s_group(name, values, default_value=None):
     """
     This primitive represents a list of static values, stepping through each one on mutation. You can tie a block
     to a group primitive to specify that the block should cycle through all possible mutations for *each* value
     within the group. The group primitive is useful for example for representing a list of valid opcodes.
 
     :type  name:            str
-    :param name:            (Optional, def=None) Name of group
+    :param name:            Name of group
     :type  values:          List or raw data
-    :param values:          (Optional, def=None) List of possible raw values this group can take.
-    :type  default_value:   str or bytes
+    :param values:          List of possible raw values this group can take.
+
     :param default_value:   (Optional, def=None) Specifying a value when fuzzing() is complete
     """
 
-    blocks.CURRENT.push(Group(name=name, default_value=default_value, values=values))
+    group = primitives.Group(name, values, default_value)
+    blocks.CURRENT.push(group)
 
 
 # noinspection PyCallingNonCallable
@@ -654,17 +593,17 @@ def s_lego(lego_type, value=None, options=()):
     blocks.CURRENT.pop()
 
 
-def s_random(value="", min_length=0, max_length=1, num_mutations=25, fuzzable=True, step=None, name=None):
+def s_random(value, min_length, max_length, num_mutations=25, fuzzable=True, step=None, name=None):
     """
     Generate a random chunk of data while maintaining a copy of the original. A random length range can be specified.
     For a static length, set min/max length to be the same.
 
-    :type  value:         str or bytes
-    :param value:         (Optional, def="") Original value
+    :type  value:         Raw
+    :param value:         Original value
     :type  min_length:    int
-    :param min_length:    (Optional, def=0) Minimum length of random block
+    :param min_length:    Minimum length of random block
     :type  max_length:    int
-    :param max_length:    (Optional, def=1) Maximum length of random block
+    :param max_length:    Maximum length of random block
     :type  num_mutations: int
     :param num_mutations: (Optional, def=25) Number of mutations to make before reverting to default
     :type  fuzzable:      bool
@@ -675,20 +614,11 @@ def s_random(value="", min_length=0, max_length=1, num_mutations=25, fuzzable=Tr
     :param name:          (Optional, def=None) Specifying a name gives you direct access to a primitive
     """
 
-    blocks.CURRENT.push(
-        RandomData(
-            name=name,
-            default_value=value,
-            min_length=min_length,
-            max_length=max_length,
-            max_mutations=num_mutations,
-            step=step,
-            fuzzable=fuzzable,
-        )
-    )
+    random_data = primitives.RandomData(value, min_length, max_length, num_mutations, fuzzable, step, name)
+    blocks.CURRENT.push(random_data)
 
 
-def s_static(value=None, name=None):
+def s_static(value, name=None):
     """
     Push a static value onto the current block stack.
 
@@ -700,88 +630,38 @@ def s_static(value=None, name=None):
     :param name:  (Optional, def=None) Specifying a name gives you direct access to a primitive
     """
 
-    blocks.CURRENT.push(Static(name=name, default_value=value))
+    static = primitives.Static(value, name)
+    blocks.CURRENT.push(static)
 
 
-def s_simple(value=None, name=None, fuzz_values=None, fuzzable=True):
-    """
-    Push a "Simple" primitive onto the current block stack. The only mutations will be those specified  in fuzz_values.
-
-    :see: Aliases: s_dunno(), s_raw(), s_unknown()
-
-    :type  value: Raw
-    :param value: Raw static data
-    :type  name:  str
-    :param name:  (Optional, def=None) Specifying a name gives you direct access to a primitive
-    :type  fuzz_values:  list
-    :param fuzz_values:  (Optional, def=None) List of fuzz values.
-    :type  fuzzable: bool
-    :param fuzzable: (Optional, def=True) Enable/disable fuzzing of this primitive
-    """
-
-    blocks.CURRENT.push(Simple(name=name, default_value=value, fuzz_values=fuzz_values, fuzzable=fuzzable))
-
-
-def s_mirror(primitive_name=None, name=None):
+def s_mirror(primitive_name, name=None):
     """
     Push a mirror of another primitive onto the current block stack.
 
     :type primitive_name:   str
-    :param primitive_name:  (Optional, def=None) Name of target primitive
+    :param primitive_name:  Name of target primitive
     :type name:             str
     :param name:            (Optional, def=None) Name of current primitive
     """
-    blocks.CURRENT.push(Mirror(name=name, primitive_name=primitive_name, request=blocks.CURRENT))
+    if primitive_name not in blocks.CURRENT.names:
+        raise exception.SullyRuntimeError("CAN NOT ADD A MIRROR FOR A NON-EXIST PRIMITIVE CURRENTLY")
+
+    mirror = primitives.Mirror(primitive_name, blocks.CURRENT, name)
+    blocks.CURRENT.push(mirror)
 
 
-def s_string(value="", size=None, padding=b"\x00", encoding="ascii", fuzzable=True, max_len=None, name=None):
+def s_string(value, size=-1, padding=b"\x00", encoding="ascii", fuzzable=True, max_len=0, name=None):
     """
     Push a string onto the current block stack.
 
     :type  value:    str
-    :param value:    (Optional, def="")Default string value
+    :param value:    Default string value
     :type  size:     int
-    :param size:     (Optional, def=None) Static size of this field, leave None for dynamic.
+    :param size:     (Optional, def=-1) Static size of this field, leave -1 for dynamic.
     :type  padding:  Character
     :param padding:  (Optional, def="\\x00") Value to use as padding to fill static field size.
     :type  encoding: str
-    :param encoding: (Optional, def="ascii") String encoding, ex: utf_16_le for Microsoft Unicode.
-    :type  fuzzable: bool
-    :param fuzzable: (Optional, def=True) Enable/disable fuzzing of this primitive
-    :type  max_len:  int
-    :param max_len:  (Optional, def=None) Maximum string length
-    :type  name:     str
-    :param name:     (Optional, def=None) Specifying a name gives you direct access to a primitive
-    """
-    # support old interface where default was -1 instead of None
-    if size == -1:
-        size = None
-    if max_len == -1:
-        max_len = None
-
-    blocks.CURRENT.push(
-        String(
-            name=name,
-            default_value=value,
-            size=size,
-            padding=padding,
-            encoding=encoding,
-            max_len=max_len,
-            fuzzable=fuzzable,
-        )
-    )
-
-
-def s_from_file(value="", filename=None, encoding="ascii", fuzzable=True, max_len=0, name=None):
-    """
-    Push a value from file onto the current block stack.
-
-    :type  value:    str
-    :param value:    (Optional, def="") Default string value
-    :type  filename: str
-    :param filename: (Optional, def=None) Filename pattern to load all fuzz value
-    :type  encoding: str
-    :param encoding: (DEPRECIATED, def="ascii") String encoding, ex: utf_16_le for Microsoft Unicode.
+    :param encoding: (Optonal, def="ascii") String encoding, ex: utf_16_le for Microsoft Unicode.
     :type  fuzzable: bool
     :param fuzzable: (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  max_len:  int
@@ -790,72 +670,35 @@ def s_from_file(value="", filename=None, encoding="ascii", fuzzable=True, max_le
     :param name:     (Optional, def=None) Specifying a name gives you direct access to a primitive
     """
 
-    blocks.CURRENT.push(FromFile(name=name, default_value=value, max_len=max_len, filename=filename, fuzzable=fuzzable))
+    s = primitives.String(value, size, padding, encoding, fuzzable, max_len, name)
+    blocks.CURRENT.push(s)
 
 
-def s_float(
-    value=0.0,
-    s_format=".1f",
-    f_min=0.0,
-    f_max=100.0,
-    max_mutations=1000,
-    fuzzable=True,
-    seed=None,
-    encode_as_ieee_754=False,
-    endian="big",
-    name=None,
-):
+def s_from_file(value, encoding="ascii", fuzzable=True, max_len=0, name=None, filename=None):
     """
-    Push a float onto the current block stack.
+    Push a value from file onto the current block stack.
 
-    :type  value:              float
-    :param value:              (Optional, def=0.0) Default float value
-    :type  s_format:           str
-    :param s_format:           (Optional, def=".1f") Format of the float value after encoding.
-    :type f_min:               float
-    :param f_min:              (Optional, def=0.0) Min value of generated floats.
-    :type f_max:               float
-    :param f_max:              (Optional, def=100.0) Max value of generated floats.
-    :type max_mutations:       int
-    :param max_mutations:      (Optional, def=1000) Total number of mutations for this individual primitive
-    :type  fuzzable:           bool
-    :param fuzzable:           (Optional, def=True) Enable/disable fuzzing of this primitive
-    :type seed:                int or str or bytes or bytearray
-    :param seed:               (Optional, def=None) Set random.seed() with the given seed for reproducible results
-    :type encode_as_ieee_754:  bool
-    :param encode_as_ieee_754: (Optional, def=False) Enable/disable encoding as IEEE 754 float
-    :type endian:              str
-    :param endian:             (Optional, def='big') Set the endianness for IEEE 754 float
-    :type  name:               str
-    :param name:               (Optional, def=None) Specifying a name gives you direct access to a primitive
+    :type  value:    str
+    :param value:    Default string value
+    :type  encoding: str
+    :param encoding: (DEPRECIATED, def="ascii") String encoding, ex: utf_16_le for Microsoft Unicode.
+    :type  fuzzable: bool
+    :param fuzzable: (Optional, def=True) Enable/disable fuzzing of this primitive
+    :type  max_len:  int
+    :param max_len:  (Optional, def=0) Maximum string length
+    :type  name:     str
+    :param name:     (Optional, def=None) Specifying a name gives you direct access to a primitive
+    :type  filename: str
+    :param filename: (Mandatory) Specify filename where to read fuzz list
     """
-    blocks.CURRENT.push(
-        Float(
-            name=name,
-            default_value=value,
-            s_format=s_format,
-            f_min=f_min,
-            f_max=f_max,
-            max_mutations=max_mutations,
-            fuzzable=fuzzable,
-            seed=seed,
-            encode_as_ieee_754=encode_as_ieee_754,
-            endian=endian,
-        )
-    )
+
+    s = primitives.FromFile(value, fuzzable, max_len, name, filename)
+    blocks.CURRENT.push(s)
 
 
 # noinspection PyTypeChecker
 def s_bit_field(
-    value=0,
-    width=8,
-    endian=LITTLE_ENDIAN,
-    output_format="binary",
-    signed=False,
-    full_range=False,
-    fuzzable=True,
-    name=None,
-    fuzz_values=None,
+    value, width, endian=LITTLE_ENDIAN, output_format="binary", signed=False, full_range=False, fuzzable=True, name=None
 ):
     """
     Push a variable length bit field onto the current block stack.
@@ -863,11 +706,11 @@ def s_bit_field(
     :see: Aliases: s_bit(), s_bits()
 
     :type  value:          int
-    :param value:          (Optional, def=0) Default integer value
+    :param value:          Default integer value
     :type  width:          int
-    :param width:          (Optional, def=8) Width of bit fields
+    :param width:          Width of bit fields
     :type  endian:         Character
-    :param endian:         (Optional, def=LITTLE_ENDIAN) Endianness of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
+    :param endian:         (Optional, def=LITTLE_ENDIAN) Endianess of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
     :type  output_format:  str
     :param output_format:  (Optional, def=binary) Output format, "binary" or "ascii"
     :type  signed:         bool
@@ -878,42 +721,22 @@ def s_bit_field(
     :param fuzzable:       (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  name:           str
     :param name:           (Optional, def=None) Specifying a name gives you direct access to a primitive
-    :type fuzz_values:     list
-    :param fuzz_values:    List of custom fuzz values to add to the normal mutations.
     """
 
-    blocks.CURRENT.push(
-        BitField(
-            name=name,
-            default_value=value,
-            width=width,
-            endian=endian,
-            output_format=output_format,
-            signed=signed,
-            full_range=full_range,
-            fuzzable=fuzzable,
-            fuzz_values=fuzz_values,
-        )
-    )
+    bit_field = primitives.BitField(value, width, None, endian, output_format, signed, full_range, fuzzable, name)
+    blocks.CURRENT.push(bit_field)
 
 
 def s_byte(
-    value=0,
-    endian=LITTLE_ENDIAN,
-    output_format="binary",
-    signed=False,
-    full_range=False,
-    fuzzable=True,
-    name=None,
-    fuzz_values=None,
+    value, endian=LITTLE_ENDIAN, output_format="binary", signed=False, full_range=False, fuzzable=True, name=None
 ):
     """
     Push a byte onto the current block stack.
 
     :see: Aliases: s_char()
 
-    :type  value:         int|byte
-    :param value:         (Optional, def=0) Default integer value
+    :type  value:         int|str
+    :param value:         Default integer value
     :type  endian:        Character
     :param endian:        (Optional, def=LITTLE_ENDIAN) Endianess of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
     :type  output_format: str
@@ -926,30 +749,18 @@ def s_byte(
     :param fuzzable:      (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  name:          str
     :param name:          (Optional, def=None) Specifying a name gives you direct access to a primitive
-    :type fuzz_values:    list
-    :param fuzz_values:   List of custom fuzz values to add to the normal mutations.
     """
 
-    blocks.CURRENT.push(
-        Byte(
-            endian=endian,
-            output_format=output_format,
-            signed=signed,
-            full_range=full_range,
-            name=name,
-            default_value=value,
-            fuzzable=fuzzable,
-            fuzz_values=fuzz_values,
-        )
-    )
+    byte = primitives.Byte(value, endian, output_format, signed, full_range, fuzzable, name)
+    blocks.CURRENT.push(byte)
 
 
-def s_bytes(value=b"", size=None, padding=b"\x00", fuzzable=True, max_len=None, name=None):
+def s_bytes(value, size=None, padding=b"\x00", fuzzable=True, max_len=None, name=None):
     """
     Push a bytes field of arbitrary length onto the current block stack.
 
     :type  value:        bytes
-    :param value:        (Optional, def=b"")Default binary value
+    :param value:        Default binary value
     :type  size:         int
     :param size:         (Optional, def=None) Static size of this field, leave None for dynamic.
     :type  padding:      chr
@@ -962,27 +773,19 @@ def s_bytes(value=b"", size=None, padding=b"\x00", fuzzable=True, max_len=None, 
     :param name:         (Optional, def=None) Specifying a name gives you direct access to a primitive
     """
 
-    blocks.CURRENT.push(
-        Bytes(name=name, default_value=value, size=size, padding=padding, max_len=max_len, fuzzable=fuzzable)
-    )
+    _bytes = primitives.Bytes(value, size, padding, fuzzable, max_len, name)
+    blocks.CURRENT.push(_bytes)
 
 
 def s_word(
-    value=0,
-    endian=LITTLE_ENDIAN,
-    output_format="binary",
-    signed=False,
-    full_range=False,
-    fuzzable=True,
-    name=None,
-    fuzz_values=None,
+    value, endian=LITTLE_ENDIAN, output_format="binary", signed=False, full_range=False, fuzzable=True, name=None
 ):
     """
     Push a word onto the current block stack.
 
     :see: Aliases: s_short()
 
-    :type  value:         (Optional, def=0) int
+    :type  value:         int
     :param value:         Default integer value
     :type  endian:        chr
     :param endian:        (Optional, def=LITTLE_ENDIAN) Endianess of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
@@ -996,40 +799,21 @@ def s_word(
     :param fuzzable:      (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  name:          str
     :param name:          (Optional, def=None) Specifying a name gives you direct access to a primitive
-    :type fuzz_values:    list
-    :param fuzz_values:   List of custom fuzz values to add to the normal mutations.
     """
 
-    blocks.CURRENT.push(
-        Word(
-            endian=endian,
-            output_format=output_format,
-            signed=signed,
-            full_range=full_range,
-            name=name,
-            default_value=value,
-            fuzzable=fuzzable,
-            fuzz_values=fuzz_values,
-        )
-    )
+    word = primitives.Word(value, endian, output_format, signed, full_range, fuzzable, name)
+    blocks.CURRENT.push(word)
 
 
 def s_dword(
-    value=0,
-    endian=LITTLE_ENDIAN,
-    output_format="binary",
-    signed=False,
-    full_range=False,
-    fuzzable=True,
-    name=None,
-    fuzz_values=None,
+    value, endian=LITTLE_ENDIAN, output_format="binary", signed=False, full_range=False, fuzzable=True, name=None
 ):
     """
     Push a double word onto the current block stack.
 
     :see: Aliases: s_long(), s_int()
 
-    :type  value:         (Optional, def=0) int
+    :type  value:         int
     :param value:         Default integer value
     :type  endian:        Character
     :param endian:        (Optional, def=LITTLE_ENDIAN) Endianess of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
@@ -1043,40 +827,21 @@ def s_dword(
     :param fuzzable:      (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  name:          str
     :param name:          (Optional, def=None) Specifying a name gives you direct access to a primitive
-    :type fuzz_values:    list
-    :param fuzz_values:   List of custom fuzz values to add to the normal mutations.
     """
 
-    blocks.CURRENT.push(
-        DWord(
-            endian=endian,
-            output_format=output_format,
-            signed=signed,
-            full_range=full_range,
-            name=name,
-            default_value=value,
-            fuzzable=fuzzable,
-            fuzz_values=fuzz_values,
-        )
-    )
+    dword = primitives.DWord(value, endian, output_format, signed, full_range, fuzzable, name)
+    blocks.CURRENT.push(dword)
 
 
 def s_qword(
-    value=0,
-    endian=LITTLE_ENDIAN,
-    output_format="binary",
-    signed=False,
-    full_range=False,
-    fuzzable=True,
-    name=None,
-    fuzz_values=None,
+    value, endian=LITTLE_ENDIAN, output_format="binary", signed=False, full_range=False, fuzzable=True, name=None
 ):
     """
     Push a quad word onto the current block stack.
 
     :see: Aliases: s_double()
 
-    :type  value:         (Optional, def=0) int
+    :type  value:         int
     :param value:         Default integer value
     :type  endian:        Character
     :param endian:        (Optional, def=LITTLE_ENDIAN) Endianess of the bit field (LITTLE_ENDIAN: <, BIG_ENDIAN: >)
@@ -1090,22 +855,10 @@ def s_qword(
     :param fuzzable:      (Optional, def=True) Enable/disable fuzzing of this primitive
     :type  name:          str
     :param name:          (Optional, def=None) Specifying a name gives you direct access to a primitive
-    :type fuzz_values:    list
-    :param fuzz_values:   List of custom fuzz values to add to the normal mutations.
     """
 
-    blocks.CURRENT.push(
-        QWord(
-            endian=endian,
-            output_format=output_format,
-            signed=signed,
-            full_range=full_range,
-            name=name,
-            default_value=value,
-            fuzzable=fuzzable,
-            fuzz_values=fuzz_values,
-        )
-    )
+    qword = primitives.QWord(value, endian, output_format, signed, full_range, fuzzable, name)
+    blocks.CURRENT.push(qword)
 
 
 # ALIASES

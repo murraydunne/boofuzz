@@ -2,7 +2,6 @@ nbsp = '\xa0';
 let failure_map = {};
 let test_case_log_snap = true;
 let test_case_log_index = 0;
-let last_test_case_log_response = "";
 
 const StringUtilities = {
     repeat: function (str, times) {
@@ -11,25 +10,16 @@ const StringUtilities = {
 };
 
 function update_current_run_info(response) {
-    document.getElementById('current_index').textContent = response.session_info.current_index.toLocaleString();
-    document.getElementById('num_mutations').textContent = (response.session_info.num_mutations || "many").toLocaleString();
-    document.getElementById('current_index_element').textContent = response.session_info.current_index_element.toLocaleString();
-    document.getElementById('num_mutations_element').textContent = response.session_info.num_mutations_element.toLocaleString();
-    document.getElementById('current_element').textContent = response.session_info.current_element + ":";
-    document.getElementById('current_test_case_name').textContent = response.session_info.current_test_case_name;
-    document.getElementById('exec_speed').textContent = response.session_info.exec_speed.toFixed(1) + "/sec";
-    document.getElementById('run_time').textContent = response.session_info.runtime.toFixed(0) + " sec";
+    document.getElementById('current_index').textContent = response.session_info.current_index;
+    document.getElementById('num_mutations').textContent = response.session_info.num_mutations;
+    document.getElementById('current_index_element').textContent = response.session_info.current_index_element;
+    document.getElementById('num_mutations_element').textContent = response.session_info.num_mutations_element;
+    document.getElementById('current_element').textContent = response.session_info.current_element;
 
 
-    if (response.session_info.num_mutations != null) {
-        let fraction_complete_total = response.session_info.current_index / response.session_info.num_mutations;
-        document.getElementById('progress_percentage_total').textContent = progress_percentage(fraction_complete_total);
-        document.getElementById('progress_bar_total').textContent = progress_bars(fraction_complete_total);
-    }
-    else {
-        document.getElementById('progress_percentage_total').textContent = "";
-        document.getElementById('progress_bar_total').textContent = "";
-    }
+    let fraction_complete_total = response.session_info.current_index / response.session_info.num_mutations;
+    document.getElementById('progress_percentage_total').textContent = progress_percentage(fraction_complete_total);
+    document.getElementById('progress_bar_total').textContent = progress_bars(fraction_complete_total);
 
     let fraction_complete_element = response.session_info.current_index_element / response.session_info.num_mutations_element;
     document.getElementById('progress_percentage_element').textContent = progress_percentage(fraction_complete_element);
@@ -76,18 +66,7 @@ function update_current_run_info(response) {
     }
 }
 
-function response_changed(old_response, new_response) {
-    // deep equals would be appropriate and more maintainable, but at time of writing we didn't want to add a JS library
-    return old_response["index"] !== new_response["index"] ||
-        old_response["log_data"].length !== new_response["log_data"].length;
-}
-
 function update_current_test_case_log(response) {
-    if (!response_changed(response, last_test_case_log_response)) {
-        return
-    }
-    last_test_case_log_response = response;
-
     logUpdateIndex(response.index);
 
     // Create log table entries
@@ -171,10 +150,22 @@ function continually_update_current_test_case_log()
     }
 }
 
+function updateTestCaseLog(index){
+    // function tryAgain()
+    // {
+    //     setTimeout(function(){updateTestCaseLog(document.getElementById('test-case-log-index-input').textContent.trim())}, 100);
+    // }
+    fetch(new Request('/api/test-case/' + index), {method: 'GET'})
+        .then(function(response) { return response.json() })
+        .then(function(response) {update_current_test_case_log(response);})
+        // .catch(tryAgain)
+    ;
+}
+
 function progress_bars(fraction){
     return '[' +
-        StringUtilities.repeat('=', Math.round(Math.min(fraction, 1) * 50)) +
-        StringUtilities.repeat(nbsp, 50 - Math.round(Math.min(fraction, 1) * 50)) + ']';
+        StringUtilities.repeat('=', Math.round(fraction * 50)) +
+        StringUtilities.repeat(nbsp, 50 - Math.round(fraction * 50)) + ']';
 }
 
 function progress_percentage(fraction){
@@ -227,7 +218,8 @@ function logNavMove(num){
 function logNavGoTo(num){
     logUpdateSnap(false);
     if (num > 0) {
-        updateIndexToFetch(num);
+        logUpdateIndex(num);
+        logUpdateLogBody(num);
     }
 }
 
@@ -237,20 +229,19 @@ function logUpdateSnap(on){
 }
 
 function logUpdateIndex(num){
-    updateIndexToFetch(num);
+    test_case_log_index = num;
 
     let test_case_log_title_index = document.getElementById('test-case-log-title-index');
     test_case_log_title_index.textContent = num;
-
-}
-
-function updateIndexToFetch(num){
-    test_case_log_index = num;
 
     let index_input = document.getElementById('test-case-log-index-input');
     if (document.activeElement !== index_input){
         index_input.value = num;
     }
+}
+
+function logUpdateLogBody(num){
+    updateTestCaseLog(num);
 }
 
 function initPage(){

@@ -450,7 +450,7 @@ class Session(pgraph.Graph):
             fuzz_loggers.append(fuzz_logger_curses.FuzzLoggerCurses(web_port=self.web_port))
             self._keep_web_open = False
         if len(fuzz_loggers) == 0:
-            fuzz_loggers = [fuzz_logger_text.FuzzLoggerText()]
+            fuzz_loggers = [fuzz_logger_text.FuzzLoggerTextDummy()]
 
         helpers.mkdir_safe(os.path.join(constants.RESULTS_DIR))
         self._run_id = datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(":", "-")
@@ -543,7 +543,8 @@ class Session(pgraph.Graph):
             "netmon_results is now part of monitor_results and thus can't be accessed directly."
             " Please update your code."
         )
-
+    def get_num_cases(self):
+        return self._index_end - self._index_start
     def add_node(self, node):
         """
         Add a pgraph node to the graph. We overload this routine to automatically generate and assign an ID whenever a
